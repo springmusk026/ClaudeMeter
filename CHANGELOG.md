@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.2
+- Fresh limits even with no session open, and per-model weekly limits (e.g. Sonnet only), from Claude Code's local `/usage` command every 5 minutes.
+- Limit history: saved readings for 30 days and a Limits view in the Usage tab (peak use per hour or day, windows used, limit hits).
+- The forecast uses your pace over the last hour.
+- Weekly limit as an inner ring in the menu bar icon.
+- Adjustable warning and critical levels for colors, alerts and the status line.
+- `--json` output and Copy Diagnostics.
+
 ## 2.1
 - Menu bar icon redesigned as a ring meter that fills with 5-hour usage, with a working dot, an account initial, and a "!" at limits.
 - Snapshot mode renders every menu bar icon state; `--demo` renders made-up data for docs.

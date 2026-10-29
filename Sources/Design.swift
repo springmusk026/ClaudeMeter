@@ -47,9 +47,20 @@ extension Color {
     static let track     = Color(light: rgb(0, 0, 0, 0.11), dark: rgb(1, 1, 1, 0.13))
 }
 
-/// Color for a share of a limit: allowance, then caution from 80%, critical from 95%.
+/// The user's warning and critical levels for plan limits (Settings › Limits).
+enum Thresholds {
+    static var warn: Double { value("warnAt", fallback: 80) }
+    static var critical: Double { value("criticalAt", fallback: 95) }
+
+    private static func value(_ key: String, fallback: Double) -> Double {
+        let v = UserDefaults.standard.double(forKey: key)
+        return v > 0 ? v : fallback
+    }
+}
+
+/// Color for a share of a limit: allowance, then caution and critical at the user's thresholds.
 func levelColor(_ percent: Double) -> Color {
-    percent >= 95 ? .critical : percent >= 80 ? .caution : .claude
+    percent >= Thresholds.critical ? .critical : percent >= Thresholds.warn ? .caution : .claude
 }
 
 enum Typo {
@@ -352,11 +363,15 @@ struct LineChart: View, Animatable {
 }
 
 /// Compact bars that grow in from the baseline, staggered left to right.
+/// `scale` fixes the top of the chart (e.g. 100 for percentages); `color`
+/// colors each bar by its value instead of a neutral tone.
 struct BarStrip: View, Animatable {
     var values: [Double]
     var progress: Double
     var tint: Color
     var highlighted: Int?
+    var scale: Double? = nil
+    var color: ((Double) -> Color)? = nil
 
     var animatableData: Double {
         get { progress }
@@ -366,16 +381,24 @@ struct BarStrip: View, Animatable {
     var body: some View {
         Canvas { ctx, size in
             guard !values.isEmpty else { return }
-            let peak = max(values.max() ?? 0, .leastNonzeroMagnitude)
-            let gap: CGFloat = 2
-            let width = (size.width - gap * CGFloat(values.count - 1)) / CGFloat(values.count)
+            let peak = max(scale ?? values.max() ?? 0, .leastNonzeroMagnitude)
+            // Bars stay slim when there are few of them; the spare room goes between them
+            let width = min(14, (size.width - 2 * CGFloat(values.count - 1)) / CGFloat(values.count))
+            let gap = values.count > 1 ? (size.width - width * CGFloat(values.count)) / CGFloat(values.count - 1) : 0
             for (i, v) in values.enumerated() {
                 let delay = Double(i) / Double(values.count) * 0.4
                 let grow = min(1, max(0, (progress - delay) / 0.6))
-                let h = max(2, (size.height) * CGFloat(v / peak) * CGFloat(grow))
+                let h = max(2, size.height * CGFloat(min(1, v / peak)) * CGFloat(grow))
                 let rect = CGRect(x: CGFloat(i) * (width + gap), y: size.height - h, width: width, height: h)
-                let color: Color = i == highlighted ? tint : (v > 0 ? Color.primary.opacity(0.28) : Color.track)
-                ctx.fill(Path(roundedRect: rect, cornerRadius: min(1.5, width / 2)), with: .color(color))
+                let fill: Color
+                if v <= 0 {
+                    fill = .track
+                } else if let color {
+                    fill = highlighted == nil || i == highlighted ? color(v) : color(v).opacity(0.4)
+                } else {
+                    fill = i == highlighted ? tint : Color.primary.opacity(0.28)
+                }
+                ctx.fill(Path(roundedRect: rect, cornerRadius: min(1.5, width / 2)), with: .color(fill))
             }
         }
     }

@@ -16,6 +16,7 @@ enum Demo {
         var personalLive = LiveData()
         personalLive.fiveHour = Limit(usedPercent: 48, resetsAt: now.addingTimeInterval(3 * 3600 + 12 * 60))
         personalLive.sevenDay = Limit(usedPercent: 31, resetsAt: now.addingTimeInterval(3 * 86400))
+        personalLive.modelWeeks = [ModelLimit(name: "Sonnet only", limit: Limit(usedPercent: 18, resetsAt: now.addingTimeInterval(3 * 86400)))]
         personalLive.limitsUpdated = now
         personalLive.lastReport = now
         personalLive.sessions = [
@@ -28,7 +29,8 @@ enum Demo {
         workLive.limitsUpdated = now.addingTimeInterval(-3 * 60)
         workLive.lastReport = workLive.limitsUpdated
 
-        let personalSnap = summarize(personalEntries, hasLogs: true, live: personalLive, now: now)
+        let personalSnap = summarize(personalEntries, hasLogs: true, live: personalLive,
+                                     history: limitHistory(current: personalLive.fiveHour!, now: now, rng: &rng), now: now)
         let workSnap = summarize(workEntries, hasLogs: true, live: workLive, now: now)
         let allSnap = summarize((personalEntries + workEntries).sorted { $0.date < $1.date }, hasLogs: true,
                                 live: .merged([personalLive, workLive]), now: now)
@@ -38,6 +40,33 @@ enum Demo {
                           profiles: [personal.id: AccountProfile(email: "you@example.com", plan: "Max 20×"),
                                      work.id: AccountProfile(email: "you@company.com", plan: "Team Standard")],
                           active: personal.id)
+    }
+
+    /// A month of 5-hour windows: a few per weekday, ramping to a peak, a couple at the limit.
+    private static func limitHistory(current: Limit, now: Date, rng: inout SeededGenerator) -> [LimitSample] {
+        let cal = Calendar.current
+        var out: [LimitSample] = []
+        for day in (1..<30).reversed() {
+            let start = cal.startOfDay(for: now).addingTimeInterval(-Double(day) * 86400)
+            if cal.isDateInWeekend(start) && Bool.random(using: &rng) { continue }
+            for hour in [9.0, 14.0, 19.0] where Double.random(in: 0...1, using: &rng) < 0.8 {
+                let open = start.addingTimeInterval(hour * 3600)
+                let reset = open.addingTimeInterval(WindowStats.length)
+                let peak = Double.random(in: 0...1, using: &rng) < 0.08 ? 100 : Double.random(in: 15...92, using: &rng)
+                for step in 0...12 {
+                    let t = open.addingTimeInterval(Double(step) * 20 * 60)
+                    let f = (peak * Double(step) / 12).rounded()
+                    out.append(LimitSample(t: t.timeIntervalSince1970, f: f, fr: reset.timeIntervalSince1970, w: nil))
+                }
+            }
+        }
+        // The current window, climbing to its present value over the last hour
+        for step in 0...6 {
+            let t = now.addingTimeInterval(-Double(6 - step) * 10 * 60)
+            out.append(LimitSample(t: t.timeIntervalSince1970, f: (current.usedPercent - 18 + 3 * Double(step)).rounded(),
+                                   fr: current.resetsAt.timeIntervalSince1970, w: 31))
+        }
+        return out
     }
 
     private static func session(_ project: String, account: String, model: String, context: Double,

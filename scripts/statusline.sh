@@ -61,23 +61,27 @@ r=$'\e[0m'; dim=$'\e[2m'; green=$'\e[32m'; yellow=$'\e[33m'; red=$'\e[31m'
 sep=" ${dim}│${r} "
 now=$(date +%s)
 
-# Colour for a percentage: green / yellow from 80 / red from 95
-level() { if (( $1 >= 95 )); then print -n $red; elif (( $1 >= 80 )); then print -n $yellow; else print -n $green; fi }
+# Colour for a percentage: green, then yellow / red from the warn / critical levels
+# (context uses 80 / 95; plan limits use the levels set in ClaudeMeter)
+level() {
+  local warn=${2:-80} crit=${3:-95}
+  if (( $1 >= crit )); then print -n $red; elif (( $1 >= warn )); then print -n $yellow; else print -n $green; fi
+}
 left() { local m=$(( ($1 - now) / 60 )); (( m >= 60 )) && print -n "$(( m / 60 ))h$(( m % 60 ))m" || print -n "${m}m"; }
 
 c=$(level $ctx_pct)
 out="${c}✳ ${model}${r}${sep}ctx ${c}$(printf '%.0f' $ctx_pct)%${r}"
 
 meter=$base/claudemeter.json
-[[ -f $meter ]] && IFS=$'\t' read -r day tcost budget wend wcost accounts account <<<"$(jq -r '[.day, .today_cost, (.daily_budget // 0), (.window_end // 0), (.window_cost // 0), (.accounts // 1), (.account // "Default")] | @tsv' "$meter")"
+[[ -f $meter ]] && IFS=$'\t' read -r day tcost budget wend wcost accounts warn_at crit_at account <<<"$(jq -r '[.day, .today_cost, (.daily_budget // 0), (.window_end // 0), (.window_cost // 0), (.accounts // 1), (.warn_at // 80), (.critical_at // 95), (.account // "Default")] | @tsv' "$meter")"
 
 # With several accounts, lead with this one's name
 (( ${accounts:-1} > 1 )) && out="${account}${sep}${out}"
 
 # Plan limits from Claude Code when available, else the app's estimated window cost
 if (( five >= 0 && five_reset > now )); then
-  out+="${sep}5h $(level $five)$(printf '%.0f' $five)%${r} ${dim}$(left $five_reset)${r}"
-  (( week >= 0 && week_reset > now )) && out+=" ${dim}·${r} wk $(level $week)$(printf '%.0f' $week)%${r}"
+  out+="${sep}5h $(level $five $warn_at $crit_at)$(printf '%.0f' $five)%${r} ${dim}$(left $five_reset)${r}"
+  (( week >= 0 && week_reset > now )) && out+=" ${dim}·${r} wk $(level $week $warn_at $crit_at)$(printf '%.0f' $week)%${r}"
 elif (( ${wend:-0} > now )); then
   out+="${sep}5h \$$(printf '%.2f' $wcost) ${dim}$(left $wend) left${r}"
 fi

@@ -9,9 +9,16 @@ struct ClaudeMeterApp: App {
     @StateObject private var store = UsageStore()
     @AppStorage("menuLabel") private var labelMode = LabelMode.limit
     @AppStorage("dailyBudget") private var budget = 0.0
+    @AppStorage("weeklyInIcon") private var weeklyInIcon = true
 
     init() {
         let args = CommandLine.arguments
+        if args.contains("--json") {
+            let store = UsageStore(preview: true, probe: !args.contains("--no-probe"))
+            FileHandle.standardOutput.write(UsageExport.json(store))
+            FileHandle.standardOutput.write(Data("\n".utf8))
+            exit(0)
+        }
         if let i = args.firstIndex(of: "--snapshot"), i + 1 < args.count {
             PanelSnapshot.write(to: URL(fileURLWithPath: args[i + 1]), demo: args.contains("--demo"))
             exit(0)
@@ -26,7 +33,7 @@ struct ClaudeMeterApp: App {
                          current: store.snap(store.currentAccount.id),
                          currentName: store.multiAccount ? store.currentAccount.name : nil,
                          state: store.state(),
-                         mode: labelMode, budget: budget)
+                         mode: labelMode, budget: budget, showWeekly: weeklyInIcon)
         }
         .menuBarExtraStyle(.window)
 
@@ -60,6 +67,7 @@ struct MenuBarLabel: View {
     let state: PanelState
     let mode: LabelMode
     let budget: Double
+    var showWeekly = true
 
     var body: some View {
         Image(nsImage: rendered)
@@ -74,11 +82,15 @@ struct MenuBarLabel: View {
             ?? window.map { Date().timeIntervalSince($0.start) / WindowStats.length }
         let critical: Bool = {
             if case .limitReached = state { return true }
-            return (five?.usedPercent ?? 0) >= 95 || (budget > 0 && all.today.cost >= budget)
+            return (five?.usedPercent ?? 0) >= Thresholds.critical || (budget > 0 && all.today.cost >= budget)
         }()
         let working: Bool = { if case .working = state { return true }; return false }()
-        return MenuBarContent(fraction: fraction, initial: currentName.map { String($0.prefix(1)).uppercased() },
-                              working: working, critical: critical, text: text)
+        let weekly = showWeekly ? current.live.sevenDay.map { $0.usedPercent / 100 } : nil
+        let initial = currentName.map { String($0.prefix(1)).uppercased() }
+        // With the weekly ring there's no room for the initial in the centre; it leads the text instead
+        let label = weekly != nil && initial != nil ? text.map { "\(initial!) \($0)" } : text
+        return MenuBarContent(fraction: fraction, weekly: weekly, initial: weekly == nil ? initial : nil,
+                              working: working, critical: critical, text: label)
     }
 
     private var rendered: NSImage {
@@ -107,6 +119,7 @@ struct MenuBarLabel: View {
 /// Ring glyph plus optional value: the menu bar's version of the panel's ring gauge.
 struct MenuBarContent: View {
     let fraction: Double?
+    var weekly: Double? = nil
     let initial: String?
     let working: Bool
     let critical: Bool
@@ -114,7 +127,7 @@ struct MenuBarContent: View {
 
     var body: some View {
         HStack(spacing: 5) {
-            MenuGlyph(fraction: critical ? 1 : fraction, initial: initial, working: working, critical: critical)
+            MenuGlyph(fraction: critical ? 1 : fraction, weekly: weekly, initial: initial, working: working, critical: critical)
                 .frame(width: 16, height: 16)
             if let text {
                 Text(text).font(.system(size: 13, weight: .medium).monospacedDigit())
@@ -127,8 +140,10 @@ struct MenuBarContent: View {
 /// A ring filled clockwise by `fraction` over a dim track. Solid rather than
 /// segmented: at menu bar size, segments read as a loading spinner.
 /// Centre: "!" at a limit, the account's initial with several accounts, or a dot while Claude works.
+/// With `weekly`, a thin inner ring shows the weekly limit.
 struct MenuGlyph: View {
     let fraction: Double?
+    var weekly: Double? = nil
     let initial: String?
     let working: Bool
     let critical: Bool
@@ -152,7 +167,24 @@ struct MenuGlyph: View {
                 ctx.stroke(arc, with: .foreground, style: StrokeStyle(lineWidth: 2.2, lineCap: fill < 1 ? .round : .butt))
             }
 
-            if critical {
+            if let weekly, !critical {
+                let inner = radius - 3.4
+                var track = Path()
+                track.addArc(center: center, radius: inner, startAngle: .zero, endAngle: .degrees(360), clockwise: false)
+                ctx.opacity = 0.3
+                ctx.stroke(track, with: .foreground, lineWidth: 1.4)
+                ctx.opacity = 1
+                let w = min(1, max(0, weekly))
+                if w > 0 {
+                    var arc = Path()
+                    arc.addArc(center: center, radius: inner, startAngle: .degrees(-90),
+                               endAngle: .degrees(-90 + 360 * max(w, 0.04)), clockwise: false)
+                    ctx.stroke(arc, with: .foreground, style: StrokeStyle(lineWidth: 1.4, lineCap: w < 1 ? .round : .butt))
+                }
+                if working {
+                    ctx.fill(Path(ellipseIn: CGRect(x: center.x - 1.1, y: center.y - 1.1, width: 2.2, height: 2.2)), with: .foreground)
+                }
+            } else if critical {
                 ctx.draw(Text("!").font(.system(size: 9.5, weight: .heavy)), at: center)
             } else if let initial {
                 ctx.draw(Text(initial).font(.system(size: 8, weight: .bold)), at: CGPoint(x: center.x, y: center.y + 0.3))

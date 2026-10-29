@@ -87,7 +87,7 @@ enum Accounts {
         NSWorkspace.shared.open(script)
     }
 
-    private static var claudePath: String {
+    static var claudePath: String {
         let candidates = [Account.home.appendingPathComponent(".local/bin/claude").path,
                           "/opt/homebrew/bin/claude", "/usr/local/bin/claude"]
         return candidates.first { FileManager.default.isExecutableFile(atPath: $0) } ?? "claude"

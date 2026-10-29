@@ -11,6 +11,11 @@ struct SettingsView: View {
     @AppStorage("budgetAlerts") private var budgetAlerts = false
     @AppStorage("resetAlerts") private var resetAlerts = false
     @AppStorage("limitAlerts") private var limitAlerts = true
+    @AppStorage("probeLimits") private var probeLimits = true
+    @AppStorage("weeklyInIcon") private var weeklyInIcon = true
+    @AppStorage("warnAt") private var warnAt = 80.0
+    @AppStorage("criticalAt") private var criticalAt = 95.0
+    @State private var copied = false
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
 
     var body: some View {
@@ -37,7 +42,23 @@ struct SettingsView: View {
             }
 
             Section {
-                Toggle("Notify at 80% and 95% of plan limits", isOn: $limitAlerts)
+                Toggle("Check limits with Claude Code every 5 minutes", isOn: $probeLimits)
+                Picker("Warn at", selection: $warnAt) {
+                    ForEach(Array(stride(from: 50.0, through: 90.0, by: 5.0)), id: \.self) { Text("\(Int($0))%").tag($0) }
+                }
+                Picker("Critical at", selection: $criticalAt) {
+                    ForEach(Array(stride(from: warnAt + 5, through: 100.0, by: 5.0)), id: \.self) { Text("\(Int($0))%").tag($0) }
+                }
+                Toggle("Show weekly limit in the menu bar icon", isOn: $weeklyInIcon)
+            } header: {
+                Text("Limits")
+            } footer: {
+                Text("Checking runs `claude /usage` on this Mac for each signed-in account: no model request, no cost, no session record. It keeps limits fresh when no session is open and adds per-model weekly limits. Colors, alerts and the status line follow your levels.")
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Toggle("Notify at warning and critical levels", isOn: $limitAlerts)
                 Toggle("Notify when the 5-hour window resets", isOn: $resetAlerts)
             } header: {
                 Text("Notifications")
@@ -50,6 +71,13 @@ struct SettingsView: View {
 
             Section {
                 LabeledContent("Version", value: version)
+                LabeledContent("Diagnostics") {
+                    Button(copied ? "Copied" : "Copy Diagnostics") {
+                        store.copyDiagnostics()
+                        copied = true
+                    }
+                    .help("Copies versions, setup and data health for a bug report. No emails, account or project names.")
+                }
             } header: {
                 Text("About")
             } footer: {
@@ -63,6 +91,8 @@ struct SettingsView: View {
         .onChange(of: budgetAlerts) { _, on in if on { Alerts.requestPermission() } }
         .onChange(of: resetAlerts) { _, on in if on { Alerts.requestPermission() } }
         .onChange(of: limitAlerts) { _, on in if on { Alerts.requestPermission() } }
+        .onChange(of: probeLimits) { _, on in if on { store.probeLimits(force: true) } }
+        .onChange(of: warnAt) { _, warn in if criticalAt <= warn { criticalAt = min(100, warn + 5) } }
         .onChange(of: launchAtLogin) { _, on in
             do {
                 if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }

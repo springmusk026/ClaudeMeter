@@ -6,6 +6,13 @@ struct Limit {
     let resetsAt: Date
 }
 
+/// A weekly limit that applies to one model, e.g. "Sonnet only".
+struct ModelLimit: Identifiable {
+    let name: String
+    let limit: Limit
+    var id: String { name }
+}
+
 /// An open Claude Code session's latest state.
 struct LiveSession: Identifiable {
     let id: String
@@ -32,11 +39,24 @@ enum Activity {
 struct LiveData {
     var fiveHour: Limit?
     var sevenDay: Limit?
+    var modelWeeks: [ModelLimit] = []
     var limitsUpdated: Date?
     var lastReport: Date?          // newest status line report of any kind
     var sessions: [LiveSession] = []
 
     var hasLimits: Bool { fiveHour != nil || sevenDay != nil }
+
+    /// Merges what `claude /usage` reported. Whichever report is newer wins;
+    /// per-model weekly limits only come from /usage.
+    mutating func apply(_ report: UsageReport, now: Date = Date()) {
+        let newer = report.fetched > (limitsUpdated ?? .distantPast)
+        let live = { (l: Limit?) in l.flatMap { $0.resetsAt > now ? $0 : nil } }
+        if newer || fiveHour == nil, let session = live(report.session) { fiveHour = session }
+        if newer || sevenDay == nil, let week = live(report.weekAll) { sevenDay = week }
+        modelWeeks = report.weekModels.filter { $0.limit.resetsAt > now }
+        if newer && hasLimits { limitsUpdated = report.fetched }
+        lastReport = max(lastReport ?? .distantPast, report.fetched)
+    }
 
     /// Open sessions across accounts. Limits belong to one account, so none carry over.
     static func merged(_ all: [LiveData]) -> LiveData {

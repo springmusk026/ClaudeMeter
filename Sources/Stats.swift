@@ -72,6 +72,7 @@ struct WindowStats {
     let firstActivity: Date
     let bucket: Bucket
     var limit: Limit?
+    var recentRate: Double?        // limit % per hour over the last hour, from saved readings
     var end: Date { start.addingTimeInterval(Self.length) }
 
     private func activeHours(now: Date, atLeast minutes: Double) -> Double? {
@@ -85,12 +86,19 @@ struct WindowStats {
     }
 
     /// Where the plan limit is heading at the current pace: the time it would be
-    /// hit, or the share expected to be used by the reset. Early in a window the
-    /// pace is mostly noise, so this waits for 30 minutes of activity and 25% used.
+    /// hit, or the share expected to be used by the reset. The pace comes from
+    /// the last hour of saved readings when there are enough; otherwise from the
+    /// average since the window's first message, which early on is mostly noise,
+    /// so that waits for 30 minutes of activity and 25% used.
     func limitForecast(now: Date) -> (hitAt: Date?, projected: Double)? {
-        guard let limit, limit.usedPercent >= 25,
-              let hours = activeHours(now: now, atLeast: 30) else { return nil }
-        let perHour = limit.usedPercent / hours
+        guard let limit else { return nil }
+        let perHour: Double
+        if let recentRate {
+            perHour = recentRate
+        } else {
+            guard limit.usedPercent >= 25, let hours = activeHours(now: now, atLeast: 30) else { return nil }
+            perHour = limit.usedPercent / hours
+        }
         guard perHour > 0 else { return nil }
         let projected = limit.usedPercent + perHour * max(0, end.timeIntervalSince(now)) / 3600
         guard projected >= 100 else { return (nil, projected) }
@@ -114,6 +122,7 @@ struct Snapshot {
     var window: WindowStats?
     var sessions: [SessionStats] = []
     var live = LiveData()
+    var limitSamples: [LimitSample] = []   // saved plan limit readings, oldest first
     var previousWeek = Bucket()   // the 7 days before the last 7
     var todaySessions = 0
     var unpriced: [String] = []   // models we have no price for
@@ -124,7 +133,8 @@ struct Snapshot {
     var today: Bucket { self[.today].total }
 }
 
-func summarize(_ entries: [Entry], hasLogs: Bool, live: LiveData, now: Date = Date()) -> Snapshot {
+func summarize(_ entries: [Entry], hasLogs: Bool, live: LiveData, history: [LimitSample] = [],
+               now: Date = Date()) -> Snapshot {
     let cal = Calendar.current
     var s = Snapshot()
     s.hasLogs = hasLogs
@@ -133,6 +143,8 @@ func summarize(_ entries: [Entry], hasLogs: Bool, live: LiveData, now: Date = Da
     let firstDay = entries.first.map { cal.startOfDay(for: $0.date) } ?? cal.startOfDay(for: now)
     for p in Period.allCases { s.periods[p] = periodStats(entries, p, firstDay: firstDay, now: now, cal: cal) }
     s.window = currentWindow(entries, limit: live.fiveHour, now: now, cal: cal)
+    if let limit = live.fiveHour { s.window?.recentRate = history.recentRate(window: limit, now: now) }
+    s.limitSamples = history
     s.live = withLogActivity(live, entries, now: now)
     s.sessions = recentSessions(entries)
 

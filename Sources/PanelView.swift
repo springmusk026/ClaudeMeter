@@ -78,6 +78,7 @@ struct PanelView: View {
         }
         .frame(width: 344)
         .animation(Motion.spring, value: current)
+        .onAppear { if previewTab == nil { store.probeLimits() } }
     }
 
     // MARK: Header and footer
@@ -258,7 +259,7 @@ struct LimitHero: View {
                     HStack(alignment: .firstTextBaseline, spacing: 2) {
                         AnimatedNumber(value: percent) { "\(Int($0.rounded()))" }
                             .font(Typo.hero)
-                            .foregroundStyle(percent >= 80 ? tint : Color.primary)
+                            .foregroundStyle(percent >= Thresholds.warn ? tint : Color.primary)
                         Text("%").font(Typo.unit).foregroundStyle(.secondary)
                     }
                     Text(percent >= 100 ? "Limit reached" : "of your allowance used")
@@ -289,6 +290,10 @@ struct LimitHero: View {
                 if let note { Text(note.text).font(Typo.caption).foregroundStyle(note.color).lineLimit(1) }
             }
 
+            if live.sevenDay != nil || !live.modelWeeks.isEmpty {
+                WeeklyRows(week: live.sevenDay, models: live.modelWeeks)
+            }
+
             if let updated = live.limitsUpdated, now.timeIntervalSince(updated) > 5 * 60 {
                 Label("As of \(clock(updated)). Claude Code reports limits while a session runs.", systemImage: "clock")
                     .font(Typo.caption)
@@ -302,7 +307,6 @@ struct LimitHero: View {
             if let hit = f.hitAt { return ("At this pace, out by \(clock(hit))", .caution) }
             return ("On pace for \(Int(f.projected.rounded()))%", .secondary)
         }
-        if let week = live.sevenDay { return ("Weekly \(Int(week.usedPercent.rounded()))%", levelColor(week.usedPercent)) }
         return nil
     }
 }
@@ -492,24 +496,46 @@ struct UsageTab: View {
     @Binding var metric: Metric
     @Binding var breakdown: Breakdown
     @EnvironmentObject var store: UsageStore
+    @AppStorage("showLimitHistory") private var showLimits = false
     @State private var hovered: Int?
+
+    /// Cost and Tokens chart the logs; Limits charts saved plan limit readings.
+    private var mode: Binding<String> {
+        Binding(get: { showLimits ? "limits" : metric.rawValue },
+                set: { value in
+                    showLimits = value == "limits"
+                    if let m = Metric(rawValue: value) { metric = m }
+                })
+    }
 
     var body: some View {
         let s = store.snap(scopeID)
         let stats = s[period]
+        // Limits belong to one account: with all accounts in view, show the one in use
+        let limitAccount = scopeID == UsageStore.all ? store.currentAccount : (store.account(scopeID) ?? .main)
+        let limits = store.snap(limitAccount.id)
         VStack(spacing: Space.s) {
             HStack {
                 Segmented(items: Period.allCases.map { .init(value: $0, title: $0.short) }, selection: $period, small: true)
                 Spacer()
-                Segmented(items: Metric.allCases.map { .init(value: $0, title: $0.title) },
-                          selection: $metric, small: true)
+                Segmented(items: Metric.allCases.map { .init(value: $0.rawValue, title: $0.title) }
+                                 + [.init(value: "limits", title: "Limits")],
+                          selection: mode, small: true)
             }
             .entrance(0)
 
-            AnalyticsCard(stats: stats, period: period, metric: metric, previous: period == .week ? s.previousWeek : nil,
-                          hovered: $hovered)
-                .id("\(period)-\(metric)-\(scopeID)")   // redraw the chart on change
-                .entrance(1)
+            if showLimits {
+                LimitHistoryCard(samples: limits.limitSamples, period: period, start: stats.start, now: Date(),
+                                 weekly: limits.live.sevenDay,
+                                 account: store.multiAccount ? limitAccount.name : nil, hovered: $hovered)
+                    .id("limits-\(period)-\(limitAccount.id)")
+                    .entrance(1)
+            } else {
+                AnalyticsCard(stats: stats, period: period, metric: metric, previous: period == .week ? s.previousWeek : nil,
+                              hovered: $hovered)
+                    .id("\(period)-\(metric)-\(scopeID)")   // redraw the chart on change
+                    .entrance(1)
+            }
 
             Card {
                 Segmented(items: Breakdown.allCases.map { .init(value: $0, title: $0.title) },
@@ -638,6 +664,144 @@ struct AnalyticsCard: View {
         guard before > 0 else { return nil }
         let delta = (metric.value(stats.total) - before) / before
         return "\(delta >= 0 ? "↑" : "↓") \(fmtPercent(abs(delta))) vs prior 7d"
+    }
+}
+
+/// Weekly limits: all models, then any per-model limits (e.g. Sonnet only).
+struct WeeklyRows: View {
+    let week: Limit?
+    let models: [ModelLimit]
+
+    var body: some View {
+        let rows = (week.map { [("All models", $0)] } ?? []) + models.map { ($0.name.capitalizedFirst, $0.limit) }
+        VStack(alignment: .leading, spacing: Space.xs) {
+            Divider().opacity(0.5)
+            ForEach(rows.indices, id: \.self) { i in
+                let (name, limit) = rows[i]
+                HStack(spacing: Space.xs) {
+                    Text(name).font(Typo.caption).foregroundStyle(.secondary).lineLimit(1)
+                        .frame(width: 92, alignment: .leading)
+                    Animated(target: limit.usedPercent / 100) {
+                        DotTrack(value: $0, tint: levelColor(limit.usedPercent), dots: 22, size: 3)
+                    }
+                    Text("\(Int(limit.usedPercent.rounded()))%")
+                        .font(Typo.caption.weight(.semibold).monospacedDigit())
+                        .foregroundStyle(limit.usedPercent >= Thresholds.warn ? levelColor(limit.usedPercent) : Color.primary)
+                        .frame(width: 34, alignment: .trailing)
+                }
+            }
+            if let reset = rows.first?.1.resetsAt {
+                Text("Weekly resets \(reset.formatted(.dateTime.weekday(.abbreviated).hour().minute()))")
+                    .font(Typo.mono)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+extension String {
+    var capitalizedFirst: String { prefix(1).uppercased() + dropFirst() }
+}
+
+/// Saved plan limit readings: the highest 5-hour usage per hour or day.
+struct LimitHistoryCard: View {
+    let samples: [LimitSample]
+    let period: Period
+    let start: Date
+    let now: Date
+    let weekly: Limit?
+    let account: String?
+    @Binding var hovered: Int?
+
+    var body: some View {
+        let slots = self.slots
+        let inRange = samples.filter { $0.date >= start }
+        let peaks = slots.map { slot in inRange.filter { $0.date >= slot && $0.date < next(slot) }.compactMap(\.f).max() ?? 0 }
+        let windows = Set(inRange.compactMap { $0.fr.map { Int($0 / 600) } })
+        let hits = Set(inRange.filter { ($0.f ?? 0) >= 100 }.compactMap { $0.fr.map { Int($0 / 600) } })
+        let focus = hovered.flatMap { peaks.indices.contains($0) ? $0 : nil }
+        let shown = focus.map { peaks[$0] } ?? (peaks.max() ?? 0)
+        let usedPeaks = peaks.filter { $0 > 0 }
+
+        Card(glow: .claude, glowAt: .topTrailing) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(focus.map { label(slots[$0]) } ?? "Peak 5-hour use · \(period.title.lowercased())")
+                        .font(Typo.caption)
+                        .foregroundStyle(.secondary)
+                    HStack(alignment: .firstTextBaseline, spacing: 2) {
+                        AnimatedNumber(value: shown) { "\(Int($0.rounded()))" }.font(Typo.display)
+                        Text("%").font(Typo.unit).foregroundStyle(.secondary)
+                    }
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: Space.xxs) {
+                    if let account { Badge(text: account) }
+                    if focus == nil, !hits.isEmpty { Badge(text: "Limit hit \(hits.count)×", tint: .critical) }
+                }
+            }
+
+            if inRange.isEmpty {
+                Text("Limit history builds up as you use Claude. ClaudeMeter saves a reading every few minutes while it runs.")
+                    .font(Typo.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+            } else {
+                GeometryReader { g in
+                    Animated(target: 1, animation: Motion.draw) { p in
+                        BarStrip(values: peaks, progress: p, tint: .claude, highlighted: focus, scale: 100, color: levelColor)
+                    }
+                    .contentShape(Rectangle())
+                    .onContinuousHover { phase in
+                        switch phase {
+                        case .active(let point):
+                            hovered = min(max(0, Int(point.x / max(1, g.size.width) * CGFloat(slots.count))), slots.count - 1)
+                        case .ended:
+                            hovered = nil
+                        }
+                    }
+                }
+                .frame(height: 72)
+                HStack {
+                    Text(axisLabel(slots.first))
+                    Spacer()
+                    Text(axisLabel(slots.last))
+                }
+                .font(Typo.mono)
+                .foregroundStyle(.tertiary)
+            }
+
+            HStack(spacing: Space.xs) {
+                MetricTile(label: period == .today ? "Average" : "Avg daily peak",
+                           value: usedPeaks.isEmpty ? 0 : usedPeaks.reduce(0, +) / Double(usedPeaks.count)) { "\(Int($0.rounded()))%" }
+                MetricTile(label: "Windows", value: Double(windows.count)) { "\(Int($0.rounded()))" }
+                    .help("5-hour windows with Claude use in this period")
+                MetricTile(label: "Weekly now", value: weekly?.usedPercent ?? 0) { weekly == nil ? "—" : "\(Int($0.rounded()))%" }
+            }
+        }
+    }
+
+    private var slots: [Date] {
+        var out: [Date] = []
+        var d = start
+        while d < now {
+            out.append(d)
+            d = next(d)
+        }
+        return out
+    }
+
+    private func next(_ d: Date) -> Date { Calendar.current.date(byAdding: period.unit, value: 1, to: d)! }
+
+    private func label(_ d: Date) -> String {
+        period == .today ? d.formatted(.dateTime.hour()) : d.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
+    }
+
+    private func axisLabel(_ d: Date?) -> String {
+        guard let d else { return "" }
+        return period == .today ? d.formatted(.dateTime.hour(.twoDigits(amPM: .omitted))) + ":00"
+                                : d.formatted(.dateTime.month(.abbreviated).day())
     }
 }
 
@@ -799,7 +963,7 @@ struct AccountCard: View {
                         Animated(target: five.usedPercent / 100) { DotTrack(value: $0, tint: levelColor(five.usedPercent), dots: 26) }
                         Text(five.usedPercent >= 100 ? "Full" : "\(Int(five.usedPercent.rounded()))%")
                             .font(Typo.caption.weight(.semibold).monospacedDigit())
-                            .foregroundStyle(five.usedPercent >= 80 ? levelColor(five.usedPercent) : Color.primary)
+                            .foregroundStyle(five.usedPercent >= Thresholds.warn ? levelColor(five.usedPercent) : Color.primary)
                             .frame(width: 34, alignment: .trailing)
                     }
                     Text(detail(five))
@@ -825,6 +989,9 @@ struct AccountCard: View {
         var parts = [five.usedPercent >= 100 ? "Back in \(fmtDuration(five.resetsAt.timeIntervalSince(now)))"
                                              : "Resets \(clock(five.resetsAt))"]
         if let week = snap.live.sevenDay { parts.append("weekly \(Int(week.usedPercent.rounded()))%") }
+        for m in snap.live.modelWeeks {
+            parts.append("\(m.name.replacingOccurrences(of: " only", with: "").lowercased()) \(Int(m.limit.usedPercent.rounded()))%")
+        }
         if let updated = snap.live.limitsUpdated, now.timeIntervalSince(updated) > 5 * 60 {
             parts.append("as of \(clock(updated))")
         }

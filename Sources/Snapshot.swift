@@ -13,7 +13,12 @@ enum PanelSnapshot {
         for (scheme, name) in [(ColorScheme.light, "light"), (.dark, "dark")] {
             let appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)!
             app.appearance = appearance
-            for tab in Tab.allCases {
+            UserDefaults.standard.set(false, forKey: "showLimitHistory")
+            for tab in Tab.allCases + [.usage] {
+                // The second Usage render shows the Limits view
+                let limitsView = tab == .usage && FileManager.default.fileExists(atPath: dir.appendingPathComponent("usage-\(name).png").path)
+                UserDefaults.standard.set(limitsView, forKey: "showLimitHistory")
+                let file = limitsView ? "limits-\(name).png" : "\(tab.rawValue)-\(name).png"
                 let view = PanelView(previewTab: tab)
                     .environmentObject(store)
                     .environment(\.colorScheme, scheme)
@@ -22,7 +27,7 @@ enum PanelSnapshot {
                 let renderer = ImageRenderer(content: view)
                 renderer.scale = 2
                 appearance.performAsCurrentDrawingAppearance {
-                    save(renderer, to: dir.appendingPathComponent("\(tab.rawValue)-\(name).png"))
+                    save(renderer, to: dir.appendingPathComponent(file))
                 }
             }
         }
@@ -47,6 +52,8 @@ enum PanelSnapshot {
             ("Limit reached", .init(fraction: 1, initial: nil, working: false, critical: true, text: "100%")),
             ("No limit data", .init(fraction: 0.3, initial: nil, working: false, critical: false, text: "$4.24")),
             ("Icon only", .init(fraction: 0.48, initial: nil, working: true, critical: false, text: nil)),
+            ("Weekly ring", .init(fraction: 0.48, weekly: 0.31, initial: nil, working: false, critical: false, text: "48%")),
+            ("Weekly, working", .init(fraction: 0.62, weekly: 0.74, initial: nil, working: true, critical: false, text: "W 62%")),
         ]
         return HStack(spacing: 0) {
             ForEach([true, false], id: \.self) { dark in

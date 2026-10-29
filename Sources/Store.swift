@@ -19,8 +19,15 @@ final class UsageStore: ObservableObject {
     @Published private(set) var profiles: [String: AccountProfile] = [:]
     @Published private(set) var activeID = Accounts.activeID
     @Published private(set) var loading = true
+    @Published private(set) var lastProbe: Date?
+    @Published private(set) var probeFailures = 0
 
     private let reader = LogReader()
+    let history = LimitHistory()
+    private var probes: [String: UsageReport] = [:]
+    private let probeQueue = DispatchQueue(label: "ClaudeMeter.probe", qos: .utility)
+    private var probing = false
+    private var probeTimer: Timer?
     private let queue = DispatchQueue(label: "ClaudeMeter.logs", qos: .utility)
     private var watcher: FolderWatcher?
     private var timer: Timer?
@@ -28,7 +35,7 @@ final class UsageStore: ObservableObject {
     private var pending = false
 
     init() {
-        UserDefaults.standard.register(defaults: ["limitAlerts": true])
+        UserDefaults.standard.register(defaults: ["limitAlerts": true, "probeLimits": true, "weeklyInIcon": true])
         UNUserNotificationCenter.current().delegate = NotificationDelegate.shared
         if UserDefaults.standard.bool(forKey: "limitAlerts") { Alerts.requestPermission() }
         accounts.forEach(Accounts.prepare)
@@ -38,11 +45,21 @@ final class UsageStore: ObservableObject {
         watch()
         // Time moves on even when nothing is logged: the day rolls over, windows expire
         timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in self?.refresh() }
+        probeLimits(force: true)
+        probeTimer = Timer.scheduledTimer(withTimeInterval: 5 * 60, repeats: true) { [weak self] _ in
+            self?.probeLimits(force: true)
+        }
     }
 
-    /// For rendering snapshots: loads once, synchronously, with no watchers or notifications.
-    init(preview: Bool) {
-        (snaps, profiles) = Self.compute(accounts, reader)
+    /// For snapshots and `--json`: loads once, synchronously, with no watchers or notifications.
+    /// With `probe`, also asks Claude Code for each account's limits first.
+    init(preview: Bool, probe: Bool = false) {
+        if probe {
+            for a in accounts where a.loadProfile().signedIn {
+                if let r = UsageProbe.run(a) { probes[a.id] = r }
+            }
+        }
+        (snaps, profiles) = Self.compute(accounts, reader, probes: probes, history: history)
         loading = false
     }
 
@@ -83,7 +100,7 @@ final class UsageStore: ObservableObject {
             let live = snap(a.id).live
             for (kind, limit) in [("5-hour", live.fiveHour), ("weekly", live.sevenDay)] {
                 guard let limit, limit.usedPercent >= 100 else { continue }
-                let other = accounts.first { $0.id != a.id && (snap($0.id).live.fiveHour?.usedPercent ?? 101) < 80 }
+                let other = accounts.first { $0.id != a.id && (snap($0.id).live.fiveHour?.usedPercent ?? 101) < Thresholds.warn }
                 let alternative = other.map {
                     "\($0.name) has \(Int(100 - (snap($0.id).live.fiveHour?.usedPercent ?? 0)))% left"
                 }
@@ -136,6 +153,33 @@ final class UsageStore: ObservableObject {
         accountsChanged()
     }
 
+    // MARK: Limits from Claude Code
+
+    /// Asks Claude Code (`claude -p /usage`, local and free) for each signed-in
+    /// account's limits. Runs every 5 minutes and when the panel opens.
+    func probeLimits(force: Bool = false) {
+        guard UserDefaults.standard.bool(forKey: "probeLimits"), !probing else { return }
+        if !force, let last = lastProbe, Date().timeIntervalSince(last) < 60 { return }
+        probing = true
+        let targets = accounts
+        probeQueue.async { [weak self] in
+            var results: [String: UsageReport] = [:]
+            var tried = 0
+            for a in targets where a.loadProfile().signedIn {
+                tried += 1
+                if let report = UsageProbe.run(a) { results[a.id] = report }
+            }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.probes.merge(results) { $1 }
+                self.lastProbe = Date()
+                self.probeFailures = tried - results.count
+                self.probing = false
+                self.refresh()
+            }
+        }
+    }
+
     private func accountsChanged() {
         Accounts.save(accounts)
         watch()
@@ -154,9 +198,11 @@ final class UsageStore: ObservableObject {
         if busy { pending = true; return }
         busy = true
         let accounts = self.accounts
+        let probes = self.probes
         queue.async { [weak self] in
             guard let self else { return }
-            let (snaps, profiles) = Self.compute(accounts, self.reader)
+            let (snaps, profiles) = Self.compute(accounts, self.reader, probes: probes, history: self.history)
+            for a in accounts { self.history.record(snaps[a.id]?.live ?? LiveData(), account: a.id) }
             DispatchQueue.main.async {
                 self.snaps = snaps
                 self.profiles = profiles
@@ -175,7 +221,8 @@ final class UsageStore: ObservableObject {
 
 extension UsageStore {
     /// Stats per account, plus all accounts combined under `all`.
-    fileprivate static func compute(_ accounts: [Account], _ reader: LogReader)
+    fileprivate static func compute(_ accounts: [Account], _ reader: LogReader,
+                                    probes: [String: UsageReport], history: LimitHistory)
         -> ([String: Snapshot], [String: AccountProfile]) {
         let entries = reader.load(accounts)
         var snaps: [String: Snapshot] = [:]
@@ -183,10 +230,11 @@ extension UsageStore {
         var lives: [LiveData] = []
         for a in accounts {
             profiles[a.id] = a.loadProfile()
-            let live = LiveReader.load(dir: a.liveDir, account: a.id)
+            var live = LiveReader.load(dir: a.liveDir, account: a.id)
+            if let report = probes[a.id] { live.apply(report) }
             lives.append(live)
             let own = entries.filter { $0.account == a.id }
-            snaps[a.id] = summarize(own, hasLogs: !own.isEmpty, live: live)
+            snaps[a.id] = summarize(own, hasLogs: !own.isEmpty, live: live, history: history.samples(for: a.id))
         }
         snaps[all] = accounts.count == 1
             ? snaps[accounts[0].id]
@@ -237,16 +285,18 @@ enum Alerts {
 
             // Plan limits: alert once per limit period per level (1 = 80%, 2 = 95%)
             if defaults.bool(forKey: "limitAlerts") {
-                for (name, limit) in [("5-hour", s.live.fiveHour), ("Weekly", s.live.sevenDay)] {
+                let limits = [("5-hour", s.live.fiveHour), ("Weekly", s.live.sevenDay)]
+                    + s.live.modelWeeks.map { ("Weekly \($0.name)", Optional($0.limit)) }
+                for (name, limit) in limits {
                     guard let limit else { continue }
-                    let level = limit.usedPercent >= 95 ? 2 : limit.usedPercent >= 80 ? 1 : 0
+                    let level = limit.usedPercent >= Thresholds.critical ? 2 : limit.usedPercent >= Thresholds.warn ? 1 : 0
                     let key = "lastLimitAlert-\(account.id)-\(name)"
                     let period = "\(Int(limit.resetsAt.timeIntervalSince1970))"
                     let last = defaults.string(forKey: key) ?? ""
                     let lastLevel = last.hasPrefix(period + ":") ? Int(last.split(separator: ":").last ?? "") ?? 0 : 0
                     if level > lastLevel {
                         defaults.set("\(period):\(level)", forKey: key)
-                        let resets = name == "Weekly"
+                        let resets = name.hasPrefix("Weekly")
                             ? limit.resetsAt.formatted(.dateTime.weekday(.wide).hour().minute())
                             : limit.resetsAt.formatted(date: .omitted, time: .shortened)
                         post(id: "limit-\(account.id)-\(name)",
@@ -296,6 +346,8 @@ enum StatusFile {
                 "today_cost": (s.today.cost * 100).rounded() / 100,
                 "today_tokens": s.today.tokens,
                 "daily_budget": UserDefaults.standard.double(forKey: "dailyBudget"),
+                "warn_at": Thresholds.warn,
+                "critical_at": Thresholds.critical,
             ]
             if let w = s.window {
                 obj["window_cost"] = (w.bucket.cost * 100).rounded() / 100

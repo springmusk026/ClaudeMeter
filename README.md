@@ -19,18 +19,22 @@ It only reads files on your Mac. No network requests, no logins, no API keys.
 
 ## Features
 
-- **Plan limits**: your real 5-hour and weekly limit usage and reset times, as reported by Claude Code, with a forecast like "At this pace, out by 10:56 PM".
-- **Menu bar meter**: a ring that fills with your 5-hour usage. A dot means Claude is working; **!** means a limit is reached.
+- **Plan limits**: your real 5-hour, weekly and per-model weekly (e.g. Sonnet only) usage and reset times, as reported by Claude Code. Kept fresh even with no session open.
+- **Forecast**: "At this pace, out by 10:56 PM", from your pace over the last hour.
+- **Limit history**: your peak 5-hour usage per hour or day over 30 days, how many windows you used and how often you hit the limit.
+- **Menu bar meter**: a ring that fills with your 5-hour usage, with an inner ring for the weekly limit. A dot means Claude is working; **!** means a limit is reached.
 - **Live sessions**: every open Claude Code session, whether it's working or idle, and how full its context window is (with a nudge to `/compact` near the end).
 - **Usage history**: cost or tokens for today, 7 or 30 days, broken down by model, project and session. Costs are estimated at Anthropic API list prices.
 - **Multiple accounts**: see each account's limits side by side and choose which one new `claude` sessions use. Accounts stay fully separate; ClaudeMeter never touches login credentials.
-- **Alerts**: notifications at 80% and 95% of a plan limit, when a 5-hour window resets, and for an optional daily budget.
+- **Alerts**: notifications at your warning and critical levels (80% and 95% by default) for every limit, when a 5-hour window resets, and for an optional daily budget.
 - **Status line**: a matching Claude Code status line with model, context, limits and cost.
+- **JSON output** for scripts, Raycast or SketchyBar: `ClaudeMeter --json`.
+- **Copy Diagnostics** in Settings for bug reports, with no emails, account or project names.
 - Follows the system light/dark appearance and respects Reduce Motion.
 
 <p align="center">
+  <img src="docs/screenshots/limits-dark.png" width="300" alt="Limits view: peak 5-hour usage per day">
   <img src="docs/screenshots/accounts-dark.png" width="300" alt="Accounts tab with two accounts">
-  <img src="docs/screenshots/now-light.png" width="300" alt="Now tab in light mode">
 </p>
 
 ## Requirements
@@ -70,6 +74,8 @@ Plan limits and live session data come from Claude Code's status line, so they a
 |---|---|
 | Tokens, cost, sessions, history | Claude Code's local logs in `~/.claude/projects/*.jsonl`, read incrementally |
 | Plan limits, context fill, live sessions | Claude Code passes these to its status line; `statusline.sh` saves them to `~/.claude/claudemeter/live/` |
+| Fresh and per-model limits | Every 5 minutes, and when you open the panel, the app runs `claude -p /usage --no-session-persistence` for each signed-in account. It's a local command: no model request, no cost, no session record. Turn it off in Settings › Limits. |
+| Limit history | Readings saved to `~/Library/Application Support/ClaudeMeter/history/` (30 days) |
 | Signed-in email and plan | The account profile in `~/.claude.json` (no tokens) |
 
 The app watches those folders and updates within a second of Claude writing to them. It writes a small summary to `~/.claude/claudemeter.json` so the status line can show daily totals.
@@ -97,6 +103,9 @@ Sources/
   LogReader.swift      incremental JSONL reader and folder watcher
   LiveData.swift       live data saved by the status line
   Accounts.swift       accounts, profiles, launching, shell commands
+  Probe.swift          runs and parses `claude /usage`
+  History.swift        saved limit readings and recent pace
+  Export.swift         --json output and diagnostics
   Model.swift          pricing, records, formatting
   Snapshot.swift       render the UI to PNG for review
   Demo.swift           made-up data for screenshots
@@ -108,7 +117,14 @@ tools/make-icon.swift  renders the app icon
 
 There's no Xcode project: `./build.sh` compiles `Sources/*.swift` with `swiftc` and assembles the app bundle.
 
-**Look at your changes.** Render every tab (light and dark) and every menu bar icon state to PNG:
+**Usage as JSON**, e.g. for a script or another menu bar tool:
+
+```sh
+~/Applications/ClaudeMeter.app/Contents/MacOS/ClaudeMeter --json             # asks Claude Code for fresh limits first
+~/Applications/ClaudeMeter.app/Contents/MacOS/ClaudeMeter --json --no-probe  # logs and saved data only, instant
+```
+
+**Look at your changes.** Render every tab (light and dark), the Limits view and every menu bar icon state to PNG:
 
 ```sh
 build/ClaudeMeter.app/Contents/MacOS/ClaudeMeter --snapshot /tmp/shots          # your real data
