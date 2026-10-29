@@ -28,14 +28,9 @@ It only reads files on your Mac. No network requests, no logins, no API keys.
 - **Multiple accounts**: see each account's limits side by side and choose which one new `claude` sessions use. Accounts stay fully separate; ClaudeMeter never touches login credentials.
 - **Alerts**: notifications at your warning and critical levels (80% and 95% by default) for every limit, when a 5-hour window resets, and for an optional daily budget.
 - **Status line**: a matching Claude Code status line with model, context, limits and cost.
-- **Desktop widget**: small (5-hour ring) and medium (plus weekly limits and today's usage). Right-click the desktop › **Edit Widgets** › search "ClaudeMeter".
 - **JSON output** for scripts, Raycast or SketchyBar: `ClaudeMeter --json`.
 - **Copy Diagnostics** in Settings for bug reports, with no emails, account or project names.
 - Follows the system light/dark appearance and respects Reduce Motion.
-
-<p align="center">
-  <img src="docs/screenshots/widgets-dark.png" width="560" alt="Small and medium desktop widgets">
-</p>
 
 <p align="center">
   <img src="docs/screenshots/limits-dark.png" width="300" alt="Limits view: peak 5-hour usage per day">
@@ -81,7 +76,6 @@ Plan limits and live session data come from Claude Code's status line, so they a
 | Plan limits, context fill, live sessions | Claude Code passes these to its status line; `statusline.sh` saves them to `~/.claude/claudemeter/live/` |
 | Fresh and per-model limits | Every 5 minutes, and when you open the panel, the app runs `claude -p /usage --no-session-persistence` for each signed-in account. It's a local command: no model request, no cost, no session record. Turn it off in Settings › Limits. |
 | Limit history | Readings saved to `~/Library/Application Support/ClaudeMeter/history/` (30 days) |
-| Widget | The app writes a summary to `~/Library/Application Support/ClaudeMeter/widget.json`. The widget is sandboxed and may read only that folder. |
 | Signed-in email and plan | The account profile in `~/.claude.json` (no tokens) |
 
 The app watches those folders and updates within a second of Claude writing to them. It writes a small summary to `~/.claude/claudemeter.json` so the status line can show daily totals.
@@ -103,6 +97,8 @@ Sources/
   App.swift            app entry, menu bar icon
   PanelView.swift      the panel: Now, Usage and Accounts tabs
   Design.swift         design system: tokens and components
+  Theme.swift          spacing and semantic colors
+  Format.swift         number and time formatting
   SettingsView.swift   settings window
   Store.swift          state, refresh, notifications, status line summary
   Stats.swift          usage summaries, 5-hour windows, forecasts
@@ -113,15 +109,8 @@ Sources/
   History.swift        saved limit readings and recent pace
   Export.swift         --json output and diagnostics
   Model.swift          pricing, records, formatting
-  WidgetFeed.swift     keeps the widget's data current
   Snapshot.swift       render the UI to PNG for review
   Demo.swift           made-up data for screenshots
-Shared/                code used by both the app and the widget
-  Theme.swift          spacing and semantic colors
-  Format.swift         number and time formatting
-  WidgetData.swift     the data the app hands to the widget
-  WidgetViews.swift    widget layouts
-Widget/                the WidgetKit extension (sandboxed)
 scripts/
   statusline.sh        the Claude Code status line
   install-statusline.sh

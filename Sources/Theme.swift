@@ -1,4 +1,4 @@
-// Colors shared by the app and its widget. Color carries meaning:
+// Semantic colors. Color carries meaning:
 //   claude  – your allowance (plan limits, capacity, primary metrics)
 //   cobalt  – history and analytics
 //   live    – something is running right now

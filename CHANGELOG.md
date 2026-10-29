@@ -1,5 +1,8 @@
 # Changelog
 
+## Unreleased
+- Removed the desktop widget for now.
+
 ## 2.3
 - Desktop widget in small and medium sizes: 5-hour ring, weekly and per-model limits, today's cost and tokens, and the forecast.
 - Chart readouts update instantly while you scrub, instead of rolling through in-between values.

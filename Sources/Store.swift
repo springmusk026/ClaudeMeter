@@ -210,7 +210,6 @@ final class UsageStore: ObservableObject {
                 self.busy = false
                 Alerts.update(accounts: accounts, snaps: snaps)
                 StatusFile.write(accounts: accounts, snaps: snaps)
-                WidgetFeed.update(self)
                 if self.pending {
                     self.pending = false
                     self.refresh()

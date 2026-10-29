@@ -5,21 +5,19 @@ set -euo pipefail
 cd "${0:A:h}"
 
 APP=build/ClaudeMeter.app
+
+# Ad-hoc signature by default; set SIGN_IDENTITY="..." to sign with a certificate.
+IDENTITY=${SIGN_IDENTITY:--}
+
+# Target the minimum macOS in Info.plist, as Xcode does (swiftc otherwise
+# targets the OS it runs on, so the app wouldn't launch on older systems).
+TARGET="$(uname -m)-apple-macos$(plutil -extract LSMinimumSystemVersion raw Info.plist)"
+SWIFTC=(swiftc -O -swift-version 5 -parse-as-library -target "$TARGET")
+
 rm -rf build
 mkdir -p "$APP/Contents/MacOS"
-swiftc -O -swift-version 5 -parse-as-library Sources/*.swift Shared/*.swift -o "$APP/Contents/MacOS/ClaudeMeter"
+"${SWIFTC[@]}" Sources/*.swift -o "$APP/Contents/MacOS/ClaudeMeter"
 cp Info.plist "$APP/Contents/"
-
-# Widget extension: sandboxed, signed before the app that contains it
-EXT="$APP/Contents/PlugIns/ClaudeMeterWidget.appex"
-mkdir -p "$EXT/Contents/MacOS"
-swiftc -O -swift-version 5 -parse-as-library -application-extension Widget/*.swift Shared/*.swift \
-  -o "$EXT/Contents/MacOS/ClaudeMeterWidget"
-cp Widget/Info.plist "$EXT/Contents/"
-for key in CFBundleShortVersionString CFBundleVersion; do
-  plutil -replace $key -string "$(plutil -extract $key raw Info.plist)" "$EXT/Contents/Info.plist"
-done
-codesign --force --sign - --entitlements Widget/Widget.entitlements "$EXT"
 
 # App icon (rendered once from tools/make-icon.swift)
 if [[ ! -f Resources/AppIcon.icns ]]; then
@@ -36,7 +34,7 @@ if [[ ! -f Resources/AppIcon.icns ]]; then
 fi
 mkdir -p "$APP/Contents/Resources"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/"
-codesign --force --sign - "$APP"
+codesign --force --sign "$IDENTITY" "$APP"
 
 if [[ ${1:-} == --no-install ]]; then
   echo "Built $APP"

@@ -18,7 +18,7 @@ Thanks for helping improve ClaudeMeter. Issues and pull requests are welcome.
 
 ## Design rules
 
-The UI is built from the tokens and components in `Sources/Design.swift` and `Shared/Theme.swift` (shared with the widget). Please reuse them rather than adding one-off styles.
+The UI is built from the tokens and components in `Sources/Design.swift` and `Sources/Theme.swift`. Please reuse them rather than adding one-off styles.
 
 - **Spacing** comes only from `Space` (4, 8, 12, 16, 20, 24, 32).
 - **Color carries meaning:**
@@ -39,7 +39,7 @@ The UI is built from the tokens and components in `Sources/Design.swift` and `Sh
    ```sh
    build/ClaudeMeter.app/Contents/MacOS/ClaudeMeter --snapshot /tmp/shots --demo
    ```
-   Check light and dark, every tab, the Limits view, `menubar.png` and `widgets-*.png`.
+   Check light and dark, every tab, the Limits view and `menubar.png`.
 3. If you changed the UI, regenerate the README screenshots from `--demo` output into `docs/screenshots/`. Never commit screenshots of real accounts.
 4. If you changed `scripts/statusline.sh`, test it with sample input:
    ```sh
