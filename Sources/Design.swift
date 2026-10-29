@@ -250,21 +250,26 @@ struct RingGauge<Center: View>: View, Animatable {
     var body: some View {
         ZStack {
             Canvas { ctx, size in
-                let mid = CGPoint(x: size.width / 2, y: size.height / 2)
-                let radius = size.width / 2 - 3
-                let lit = min(1, max(0, value)) * Double(segments)
+                let lit: Double = min(1, max(0, value)) * Double(segments)
                 for i in 0..<segments {
-                    let angle = (Double(i) / Double(segments)) * 2 * .pi - .pi / 2
-                    let p = CGPoint(x: mid.x + radius * cos(angle), y: mid.y + radius * sin(angle))
-                    let dot = Path(ellipseIn: CGRect(x: p.x - 1.4, y: p.y - 1.4, width: 2.8, height: 2.8))
+                    let dot = segmentDot(i, in: size)
                     ctx.fill(dot, with: .color(.track))
-                    let fill = Double(i) + 1 <= lit ? 1 : max(0, lit - Double(i))
+                    let fill: Double = Double(i) + 1 <= lit ? 1 : max(0, lit - Double(i))
                     if fill > 0 { ctx.fill(dot, with: .color(tint.opacity(fill))) }
                 }
             }
             center
         }
         .frame(width: diameter, height: diameter)
+    }
+
+    /// Segment `i`'s dot, starting at 12 o'clock and going clockwise.
+    private func segmentDot(_ i: Int, in size: CGSize) -> Path {
+        let angle: Double = Double(i) / Double(segments) * 2 * Double.pi - Double.pi / 2
+        let radius: Double = Double(size.width) / 2 - 3
+        let x: Double = Double(size.width) / 2 + radius * cos(angle)
+        let y: Double = Double(size.height) / 2 + radius * sin(angle)
+        return Path(ellipseIn: CGRect(x: x - 1.4, y: y - 1.4, width: 2.8, height: 2.8))
     }
 }
 
