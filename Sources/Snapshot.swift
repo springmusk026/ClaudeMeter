@@ -34,6 +34,35 @@ enum PanelSnapshot {
         let renderer = ImageRenderer(content: menuBarStates)
         renderer.scale = 3
         save(renderer, to: dir.appendingPathComponent("menubar.png"))
+
+        // Settings uses standard controls, which ImageRenderer can't draw, so
+        // capture it from a real (offscreen) window instead
+        for (scheme, name) in [(ColorScheme.light, "light"), (.dark, "dark")] {
+            let appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)!
+            app.appearance = appearance
+            for tab in SettingsTab.allCases {
+                let view = SettingsView(previewTab: tab)
+                    .environmentObject(store)
+                    .environment(\.isSnapshot, true)
+                    .tint(.claude)
+                    .background(Color(nsColor: .windowBackgroundColor))
+                capture(view, appearance: appearance, to: dir.appendingPathComponent("settings-\(tab.rawValue)-\(name).png"))
+            }
+        }
+    }
+
+    @MainActor
+    private static func capture<V: View>(_ view: V, appearance: NSAppearance, to url: URL) {
+        let host = NSHostingView(rootView: view)
+        host.appearance = appearance
+        host.frame = CGRect(origin: .zero, size: host.fittingSize)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.appearance = appearance
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return }
+        host.cacheDisplay(in: host.bounds, to: rep)
+        try? rep.representation(using: .png, properties: [:])?.write(to: url)
     }
 
     @MainActor

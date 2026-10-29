@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Redesigned Settings: General, Limits, Accounts and About tabs instead of one long page.
+  - The menu bar option shows a live preview of each choice.
+  - Warning and critical levels are shown on a single bar.
+  - Shows when limits were last checked, whether notifications are allowed, today's spend against the budget, and setup status.
 - Removed the desktop widget for now.
 
 ## 2.3

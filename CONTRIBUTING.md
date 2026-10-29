@@ -39,7 +39,7 @@ The UI is built from the tokens and components in `Sources/Design.swift` and `So
    ```sh
    build/ClaudeMeter.app/Contents/MacOS/ClaudeMeter --snapshot /tmp/shots --demo
    ```
-   Check light and dark, every tab, the Limits view and `menubar.png`.
+   Check light and dark, every tab, the Limits view, `menubar.png` and `settings-*.png`.
 3. If you changed the UI, regenerate the README screenshots from `--demo` output into `docs/screenshots/`. Never commit screenshots of real accounts.
 4. If you changed `scripts/statusline.sh`, test it with sample input:
    ```sh
