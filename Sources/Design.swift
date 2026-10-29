@@ -9,42 +9,9 @@ import SwiftUI
 
 // MARK: - Tokens
 
-enum Space {
-    static let xxs: CGFloat = 4
-    static let xs: CGFloat = 8
-    static let s: CGFloat = 12
-    static let m: CGFloat = 16
-    static let l: CGFloat = 20
-    static let xl: CGFloat = 24
-    static let xxl: CGFloat = 32
-}
-
 enum Radius {
     static let control: CGFloat = 6
     static let card: CGFloat = 12
-}
-
-private func rgb(_ r: Double, _ g: Double, _ b: Double, _ a: Double = 1) -> NSColor {
-    NSColor(srgbRed: r, green: g, blue: b, alpha: a)
-}
-
-extension Color {
-    init(light: NSColor, dark: NSColor) {
-        self.init(nsColor: NSColor(name: nil) { appearance in
-            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
-        })
-    }
-
-    static let claude   = Color(light: rgb(0.80, 0.42, 0.29), dark: rgb(0.93, 0.56, 0.42))
-    static let cobalt   = Color(light: rgb(0.15, 0.38, 0.92), dark: rgb(0.42, 0.62, 1.00))
-    static let live     = Color(light: rgb(0.12, 0.60, 0.34), dark: rgb(0.32, 0.84, 0.52))
-    static let caution  = Color(light: rgb(0.84, 0.50, 0.04), dark: rgb(1.00, 0.72, 0.28))
-    static let critical = Color(light: rgb(0.85, 0.20, 0.18), dark: rgb(1.00, 0.45, 0.40))
-
-    static let surface   = Color(light: rgb(0, 0, 0, 0.035), dark: rgb(1, 1, 1, 0.05))
-    static let selection = Color(light: rgb(1, 1, 1, 1), dark: rgb(1, 1, 1, 0.13))
-    static let hairline  = Color(light: rgb(0, 0, 0, 0.08), dark: rgb(1, 1, 1, 0.09))
-    static let track     = Color(light: rgb(0, 0, 0, 0.11), dark: rgb(1, 1, 1, 0.13))
 }
 
 /// The user's warning and critical levels for plan limits (Settings › Limits).
@@ -98,22 +65,33 @@ extension EnvironmentValues {
 // MARK: - Animation helpers
 
 /// Holds a value that animates from zero when it first appears, then between updates.
+/// With `instant` (e.g. while scrubbing a chart) it shows the target exactly and at
+/// once, cancelling any count in flight, so it never passes through in-between values.
 struct Animated<Content: View>: View {
     let target: Double
     var animation: Animation = Motion.count
+    var instant = false
     let content: (Double) -> Content
     @State private var shown: Double?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.isSnapshot) private var isSnapshot
 
     var body: some View {
-        content(shown ?? (reduceMotion || isSnapshot ? target : 0))
+        content(instant ? target : shown ?? (reduceMotion || isSnapshot ? target : 0))
+            .transaction { if instant { $0.animation = nil } }
             .onAppear {
                 guard shown == nil else { return }
-                if reduceMotion { shown = target } else { withAnimation(animation) { shown = target } }
+                if reduceMotion || instant { shown = target } else { withAnimation(animation) { shown = target } }
             }
             .onChange(of: target) { _, new in
-                if reduceMotion { shown = new } else { withAnimation(Motion.spring) { shown = new } }
+                if reduceMotion || instant {
+                    // Replace any running animation rather than retarget it
+                    var t = Transaction()
+                    t.disablesAnimations = true
+                    withTransaction(t) { shown = new }
+                } else {
+                    withAnimation(Motion.spring) { shown = new }
+                }
             }
     }
 }
@@ -131,10 +109,11 @@ struct CountingText: View, Animatable {
 
 struct AnimatedNumber: View {
     let value: Double
+    var instant = false
     let format: (Double) -> String
 
     var body: some View {
-        Animated(target: value) { CountingText(value: $0, format: format) }
+        Animated(target: value, instant: instant) { CountingText(value: $0, format: format) }
     }
 }
 
@@ -565,11 +544,12 @@ struct Badge: View {
 struct MetricTile: View {
     let label: String
     let value: Double
+    var instant = false
     let format: (Double) -> String
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            AnimatedNumber(value: value, format: format).font(Typo.metric)
+            AnimatedNumber(value: value, instant: instant, format: format).font(Typo.metric)
             Text(label).font(Typo.micro).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)

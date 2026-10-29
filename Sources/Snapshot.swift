@@ -34,6 +34,35 @@ enum PanelSnapshot {
         let renderer = ImageRenderer(content: menuBarStates)
         renderer.scale = 3
         save(renderer, to: dir.appendingPathComponent("menubar.png"))
+
+        let data = WidgetFeed.make(store)
+        for (scheme, name) in [(ColorScheme.light, "light"), (.dark, "dark")] {
+            let appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)!
+            app.appearance = appearance
+            let renderer = ImageRenderer(content: widgets(data).environment(\.colorScheme, scheme))
+            renderer.scale = 2
+            appearance.performAsCurrentDrawingAppearance {
+                save(renderer, to: dir.appendingPathComponent("widgets-\(name).png"))
+            }
+        }
+    }
+
+    /// The small and medium widgets at their macOS sizes, on a desktop-like backdrop.
+    private static func widgets(_ data: WidgetData) -> some View {
+        let level = data.fiveHour.map { data.level($0.percent) } ?? .normal
+        func tile<V: View>(_ width: CGFloat, _ content: V) -> some View {
+            content
+                .padding(Space.m)
+                .frame(width: width, height: 170)
+                .background(WidgetBackground(level: level))
+                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        }
+        return HStack(spacing: Space.l) {
+            tile(170, WidgetSmallView(data: data))
+            tile(364, WidgetMediumView(data: data))
+        }
+        .padding(Space.xl)
+        .background(LinearGradient(colors: [Color(white: 0.45), Color(white: 0.3)], startPoint: .top, endPoint: .bottom))
     }
 
     @MainActor

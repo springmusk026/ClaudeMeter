@@ -27,7 +27,6 @@ enum Tab: String, CaseIterable, Identifiable {
     }
 }
 
-func clock(_ date: Date) -> String { date.formatted(date: .omitted, time: .shortened) }
 
 struct PanelView: View {
     var previewTab: Tab? = nil   // set when rendering snapshots
@@ -586,7 +585,7 @@ struct AnalyticsCard: View {
                     Text(focus.map { label($0.date) } ?? "Total · \(period.title.lowercased())")
                         .font(Typo.caption)
                         .foregroundStyle(.secondary)
-                    AnimatedNumber(value: metric.value(bucket), format: metric.format).font(Typo.display)
+                    AnimatedNumber(value: metric.value(bucket), instant: focus != nil, format: metric.format).font(Typo.display)
                 }
                 Spacer()
                 if focus == nil, let change { Badge(text: change, tint: .cobalt) }
@@ -625,10 +624,10 @@ struct AnalyticsCard: View {
 
             HStack(spacing: Space.xs) {
                 MetricTile(label: metric == .cost ? "Tokens" : "Est. cost",
-                           value: metric == .cost ? Double(bucket.tokens) : bucket.cost,
+                           value: metric == .cost ? Double(bucket.tokens) : bucket.cost, instant: focus != nil,
                            format: metric == .cost ? { fmtTokens(Int($0)) } : fmtCost)
-                MetricTile(label: "Messages", value: Double(bucket.messages)) { "\(Int($0.rounded()))" }
-                MetricTile(label: "Cache reuse", value: bucket.cacheReuse) { fmtPercent($0) }
+                MetricTile(label: "Messages", value: Double(bucket.messages), instant: focus != nil) { "\(Int($0.rounded()))" }
+                MetricTile(label: "Cache reuse", value: bucket.cacheReuse, instant: focus != nil) { fmtPercent($0) }
                     .help("Share of prompt tokens read from cache, billed at about a tenth of the normal price")
             }
         }
@@ -730,7 +729,7 @@ struct LimitHistoryCard: View {
                         .font(Typo.caption)
                         .foregroundStyle(.secondary)
                     HStack(alignment: .firstTextBaseline, spacing: 2) {
-                        AnimatedNumber(value: shown) { "\(Int($0.rounded()))" }.font(Typo.display)
+                        AnimatedNumber(value: shown, instant: focus != nil) { "\(Int($0.rounded()))" }.font(Typo.display)
                         Text("%").font(Typo.unit).foregroundStyle(.secondary)
                     }
                 }

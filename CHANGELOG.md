@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.3
+- Desktop widget in small and medium sizes: 5-hour ring, weekly and per-model limits, today's cost and tokens, and the forecast.
+- Chart readouts update instantly while you scrub, instead of rolling through in-between values.
+
 ## 2.2
 - Fresh limits even with no session open, and per-model weekly limits (e.g. Sonnet only), from Claude Code's local `/usage` command every 5 minutes.
 - Limit history: saved readings for 30 days and a Limits view in the Usage tab (peak use per hour or day, windows used, limit hits).

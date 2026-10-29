@@ -7,8 +7,19 @@ cd "${0:A:h}"
 APP=build/ClaudeMeter.app
 rm -rf build
 mkdir -p "$APP/Contents/MacOS"
-swiftc -O -swift-version 5 -parse-as-library Sources/*.swift -o "$APP/Contents/MacOS/ClaudeMeter"
+swiftc -O -swift-version 5 -parse-as-library Sources/*.swift Shared/*.swift -o "$APP/Contents/MacOS/ClaudeMeter"
 cp Info.plist "$APP/Contents/"
+
+# Widget extension: sandboxed, signed before the app that contains it
+EXT="$APP/Contents/PlugIns/ClaudeMeterWidget.appex"
+mkdir -p "$EXT/Contents/MacOS"
+swiftc -O -swift-version 5 -parse-as-library -application-extension Widget/*.swift Shared/*.swift \
+  -o "$EXT/Contents/MacOS/ClaudeMeterWidget"
+cp Widget/Info.plist "$EXT/Contents/"
+for key in CFBundleShortVersionString CFBundleVersion; do
+  plutil -replace $key -string "$(plutil -extract $key raw Info.plist)" "$EXT/Contents/Info.plist"
+done
+codesign --force --sign - --entitlements Widget/Widget.entitlements "$EXT"
 
 # App icon (rendered once from tools/make-icon.swift)
 if [[ ! -f Resources/AppIcon.icns ]]; then
