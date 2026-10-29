@@ -1,5 +1,6 @@
 #!/bin/zsh
 # Build ClaudeMeter.app, install it to ~/Applications and launch it.
+# With --no-install, only build it into build/ (used by CI and releases).
 set -euo pipefail
 cd "${0:A:h}"
 
@@ -25,6 +26,11 @@ fi
 mkdir -p "$APP/Contents/Resources"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/"
 codesign --force --sign - "$APP"
+
+if [[ ${1:-} == --no-install ]]; then
+  echo "Built $APP"
+  exit 0
+fi
 
 pkill -x ClaudeMeter 2>/dev/null || true
 mkdir -p ~/Applications

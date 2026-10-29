@@ -1,5 +1,9 @@
 # ClaudeMeter
 
+[![Build](https://github.com/springmusk026/ClaudeMeter/actions/workflows/build.yml/badge.svg)](https://github.com/springmusk026/ClaudeMeter/actions/workflows/build.yml)
+[![Latest release](https://img.shields.io/github/v/release/springmusk026/ClaudeMeter)](https://github.com/springmusk026/ClaudeMeter/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
 A native macOS menu bar app that shows your **Claude Code** usage at a glance: how much of your plan limit is left, what's running right now, and where your tokens go.
 
 It only reads files on your Mac. No network requests, no logins, no API keys.
@@ -32,11 +36,22 @@ It only reads files on your Mac. No network requests, no logins, no API keys.
 ## Requirements
 
 - macOS 14 Sonoma or later
-- Xcode or the Xcode Command Line Tools (Swift 5.9+)
 - [Claude Code](https://claude.com/claude-code)
 - `jq` for the status line (`brew install jq`)
+- To build from source: Xcode or the Xcode Command Line Tools (Swift 5.9+)
 
 ## Install
+
+### Download
+
+1. Download `ClaudeMeter.zip` from the [latest release](https://github.com/springmusk026/ClaudeMeter/releases/latest), unzip it, and move **ClaudeMeter.app** to Applications.
+2. The app isn't notarized by Apple, so the first launch is blocked. Right-click the app, choose **Open**, then **Open** again. Or run:
+   ```sh
+   xattr -dr com.apple.quarantine /Applications/ClaudeMeter.app
+   ```
+3. For plan limits and live sessions, install the status line from a clone of this repo (`./scripts/install-statusline.sh`).
+
+### Build from source
 
 ```sh
 git clone https://github.com/springmusk026/ClaudeMeter.git

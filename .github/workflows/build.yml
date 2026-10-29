@@ -1,0 +1,33 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Swift version
+        run: swift --version
+
+      - name: Build app
+        run: ./build.sh --no-install
+
+      - name: Check status line script
+        run: |
+          brew list jq >/dev/null 2>&1 || brew install jq
+          export CLAUDE_CONFIG_DIR="$RUNNER_TEMP/claude"
+          echo '{"session_id":"ci","model":{"display_name":"Opus 5.5"},"context_window":{"used_percentage":40},"rate_limits":{"five_hour":{"used_percentage":50,"resets_at":'$(( $(date +%s) + 3600 ))'}}}' \
+            | scripts/statusline.sh
+          echo
+          test -f "$CLAUDE_CONFIG_DIR/claudemeter/live/ci.json"
+
+      - name: Upload app
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClaudeMeter.app
+          path: build/ClaudeMeter.app
