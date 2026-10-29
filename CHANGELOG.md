@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- README: Settings section, build-from-source install (no release yet), fresh screenshots.
 - Redesigned Settings: General, Limits, Accounts and About tabs instead of one long page.
   - The menu bar option shows a live preview of each choice.
   - Warning and critical levels are shown on a single bar.

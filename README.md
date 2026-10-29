@@ -1,7 +1,6 @@
 # ClaudeMeter
 
 [![Build](https://github.com/springmusk026/ClaudeMeter/actions/workflows/build.yml/badge.svg)](https://github.com/springmusk026/ClaudeMeter/actions/workflows/build.yml)
-[![Latest release](https://img.shields.io/github/v/release/springmusk026/ClaudeMeter)](https://github.com/springmusk026/ClaudeMeter/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 A native macOS menu bar app that shows your **Claude Code** usage at a glance: how much of your plan limit is left, what's running right now, and where your tokens go.
@@ -29,6 +28,7 @@ It only reads files on your Mac. No network requests, no logins, no API keys.
 - **Alerts**: notifications at your warning and critical levels (80% and 95% by default) for every limit, when a 5-hour window resets, and for an optional daily budget.
 - **Status line**: a matching Claude Code status line with model, context, limits and cost.
 - **JSON output** for scripts, Raycast or SketchyBar: `ClaudeMeter --json`.
+- **Settings that show state**: a live preview of each menu bar option, today's spend against your budget, when limits were last checked, whether notifications are allowed, and a setup checklist.
 - **Copy Diagnostics** in Settings for bug reports, with no emails, account or project names.
 - Follows the system light/dark appearance and respects Reduce Motion.
 
@@ -37,34 +37,43 @@ It only reads files on your Mac. No network requests, no logins, no API keys.
   <img src="docs/screenshots/accounts-dark.png" width="300" alt="Accounts tab with two accounts">
 </p>
 
+## Settings
+
+Open **Settings (⌘,)** from the gear in the panel. There are four tabs:
+
+| Tab | What's there |
+|---|---|
+| General | What the menu bar shows (with a live preview of each option), the weekly inner ring, an optional daily budget, launch at login |
+| Limits | Warning and critical levels (80% and 95% by default), limit checks with their last result, notifications |
+| Accounts | Add, rename and remove accounts, choose the one new `claude` sessions use, install terminal commands |
+| About | Version, a setup checklist (Claude Code, status line, terminal commands) and Copy Diagnostics |
+
+<p align="center">
+  <img src="docs/screenshots/settings-general-dark.png" width="400" alt="Settings, General tab: menu bar options with live previews and the daily budget">
+  <img src="docs/screenshots/settings-limits-dark.png" width="400" alt="Settings, Limits tab: warning and critical levels, limit checks and notifications">
+</p>
+
 ## Requirements
 
 - macOS 14 Sonoma or later
 - [Claude Code](https://claude.com/claude-code)
 - `jq` for the status line (`brew install jq`)
-- To build from source: Xcode or the Xcode Command Line Tools (Swift 5.9+)
+- Xcode or the Xcode Command Line Tools (Swift 5.9+) to build it
 
 ## Install
 
-### Download
-
-1. Download `ClaudeMeter.zip` from the [latest release](https://github.com/springmusk026/ClaudeMeter/releases/latest), unzip it, and move **ClaudeMeter.app** to Applications.
-2. The app isn't notarized by Apple, so the first launch is blocked. Right-click the app, choose **Open**, then **Open** again. Or run:
-   ```sh
-   xattr -dr com.apple.quarantine /Applications/ClaudeMeter.app
-   ```
-3. For plan limits and live sessions, install the status line from a clone of this repo (`./scripts/install-statusline.sh`).
-
-### Build from source
+There's no prebuilt download yet, so build it from source. It takes about a minute and needs only the Xcode Command Line Tools (`xcode-select --install`).
 
 ```sh
 git clone https://github.com/springmusk026/ClaudeMeter.git
 cd ClaudeMeter
 ./build.sh                       # builds, installs to ~/Applications and launches
-./scripts/install-statusline.sh  # optional, enables plan limits and live sessions
+./scripts/install-statusline.sh  # recommended: enables plan limits and live sessions
 ```
 
-Then open **Settings… (⌘,)** from the panel and turn on **Launch at login**.
+ClaudeMeter appears in the menu bar. Open **Settings › General** and turn on **Launch at login**.
+
+`build.sh` signs the app ad hoc, which is all a local build needs. To sign with your own certificate, run `SIGN_IDENTITY="Apple Development: …" ./build.sh`. Run `./build.sh` again to update after a `git pull`.
 
 Plan limits and live session data come from Claude Code's status line, so they appear after you install the status line and start (or restart) a Claude Code session. Without it, ClaudeMeter still shows usage and cost from the logs, with an estimated 5-hour window.
 
@@ -99,7 +108,7 @@ Sources/
   Design.swift         design system: tokens and components
   Theme.swift          spacing and semantic colors
   Format.swift         number and time formatting
-  SettingsView.swift   settings window
+  SettingsView.swift   settings: General, Limits, Accounts, About
   Store.swift          state, refresh, notifications, status line summary
   Stats.swift          usage summaries, 5-hour windows, forecasts
   LogReader.swift      incremental JSONL reader and folder watcher
@@ -117,7 +126,7 @@ scripts/
 tools/make-icon.swift  renders the app icon
 ```
 
-There's no Xcode project: `./build.sh` compiles `Sources/*.swift` with `swiftc` and assembles the app bundle.
+There's no Xcode project: `./build.sh` compiles `Sources/*.swift` with `swiftc` (targeting the minimum macOS in `Info.plist`) and assembles the app bundle. `./build.sh --no-install` only builds into `build/`, as CI does.
 
 **Usage as JSON**, e.g. for a script or another menu bar tool:
 
@@ -126,7 +135,7 @@ There's no Xcode project: `./build.sh` compiles `Sources/*.swift` with `swiftc` 
 ~/Applications/ClaudeMeter.app/Contents/MacOS/ClaudeMeter --json --no-probe  # logs and saved data only, instant
 ```
 
-**Look at your changes.** Render every tab (light and dark), the Limits view and every menu bar icon state to PNG:
+**Look at your changes.** Render every panel tab and Settings tab (light and dark), the Limits view and every menu bar icon state to PNG:
 
 ```sh
 build/ClaudeMeter.app/Contents/MacOS/ClaudeMeter --snapshot /tmp/shots          # your real data
